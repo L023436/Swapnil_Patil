@@ -1,0 +1,350 @@
+String[] Log_Msg=""
+def limit = 5
+
+if( (HostName.equals("")) || (FSName.equals("")) || (LoginName.equals("")) || (DomainName.equals(""))  || (INCNumber.equals("")))
+{
+   Log_Msg+= "Insufficient Parameters"
+   return ["1", Log_Msg.join("\r\n")] 
+}
+
+else
+{
+   Windows windows=new Windows(DomainName:DomainName,HostName:HostName,metaProperties:metaProperties);
+
+   def ScriptReturn,ScriptOutput;
+   def Param="Lilly High Utilization,"+HostName;
+   (ScriptReturn,ScriptOutput)=windows.executePSScriptWithParams(DomainName:"AM",LoginName:"igniowin",HostName:"IX1IGNPRWCH1.AM.LILLY.COM",ScriptPath:"E:/ignio/INC_CountCheck.ps1",Parameters:Param);   
+   if(ScriptReturn.equals("0") && ScriptOutput.equals("Continue"))
+   {
+       Log_Msg+= "Checking Drive details"
+   }
+   else if(ScriptReturn.equals("0") && ScriptOutput.equals("Reassign"))
+   {
+       Log_Msg+= "This issue has more than 2 occurrence for today on ${HostName}"
+       return ["1", Log_Msg.join("\r\n")]
+   }
+   else
+   {
+       Log_Msg+= "Script Failure -- Incident count check script failed"
+       return ["1", Log_Msg.join("\r\n")]
+   }
+   
+   if( (FSName.equals("F:")) || (FSName.equals("G:")) )
+   {
+    Log_Msg+= "${FSName} Drive space can fix by Ignio"
+
+    //Windows windows=new Windows(DomainName:DomainName,HostName:HostName,metaProperties:metaProperties);
+    def ServerReturn,ServerOutput;
+    (ServerReturn,ServerOutput)=windows.checkHostReachability(HostName:HostName);
+    def ServerReturn1,ServerOutput1;
+
+    if(ServerReturn!="0")
+    {
+        def SleepReturn1,SleepOutput1;
+        (SleepReturn1,SleepOutput1)=windows.startSleep(DomainName:DomainName,LoginName:LoginName,HostName:HostName,SleepTime:"300");
+        if(SleepReturn1.equals("0"))
+        {
+            Log_Msg+= "Rechecking server availability"            
+            (ServerReturn1,ServerOutput1)=windows.checkHostReachability(HostName:HostName);
+        }
+        else
+        {
+            Log_Msg+= "Unable to execute sleeping for 5 minutes"
+            return ["1", Log_Msg.join("\r\n")]
+        } 
+    }
+
+    if(ServerReturn.equals("0") || ServerReturn1.equals("0"))
+    {
+        Log_Msg+= "${HostName} is available"
+        
+        def FSReturn,FSOutput;
+        (FSReturn,FSOutput)=windows.getFileSystem(DomainName:DomainName,LoginName:LoginName,HostName:HostName,FileSystem:FSName);
+        if( (FSReturn.equals("0")) && (FSOutput!="") )
+        {
+            Log_Msg+= "${FSName} Drive exists on server"            
+            
+            def SpaceReturn,SpaceOutput;
+            (SpaceReturn,SpaceOutput)=windows.getFileSystemFreeSpace(DomainName:DomainName,LoginName:LoginName,HostName:HostName,FileFolderPath:FSName);
+            if( ((SpaceReturn.equals("0")) && (SpaceOutput!="")) || ((SpaceReturn.equals("1")) && (SpaceOutput.equals("0"))) )
+            {
+                Log_Msg+= "Free space on ${FSName} Drive is ${SpaceOutput}%"
+                
+                def SpaceOut=SpaceOutput.toInteger()
+                if( SpaceOut<=limit )
+                {
+                    Log_Msg+= "${FSName} Drive needs to be free some space"
+                    
+                    if( FSName.equals("F:"))
+                    {
+                        Log_Msg+= "Trigger T-Log Bkp and shrink log files"
+                                                    
+                        def BkpReturn,BkpOutput;
+                        (BkpReturn,BkpOutput)=RunTLogBkpInstancesAll(HostName:HostName,LoginName:LoginName);
+                        if( (BkpReturn.equals("0")) && (BkpOutput!="") )
+                        {
+                            Log_Msg+= "T-Log Bkp triggered for all instances (1)"                            
+                        }
+                        else
+                        {
+                            Log_Msg+= "Failed to trigger T-Log Bkp (1)"
+                            return ["1", Log_Msg.join("\r\n")]
+                        }
+
+                        def JobReturn,JobOutput;
+                        (JobReturn,JobOutput)=getCurrentJobInstancesAll(HostName:HostName,LoginName:LoginName,WaitTime:"10");
+                        if( (JobReturn.equals("0")) && (JobOutput!="") )
+                        {
+                            Log_Msg+= "T-Log Bkp completed (1)"                            
+                        }
+                        else
+                        {
+                            Log_Msg+= "Failed to get T-Log Bkp status (1)"
+                            return ["1", Log_Msg.join("\r\n")]
+                        }
+
+                        def ShrinkReturn2,ShrinkOutput2;
+                        (ShrinkReturn2,ShrinkOutput2)=ShrinkLogFilesInstancesAll(HostName:HostName,LoginName:LoginName);
+                        if( (ShrinkReturn2.equals("0")) && (ShrinkOutput2!="") )
+                        {
+                            Log_Msg+= "Shrinking Log Files (1)"                            
+                        }
+                        else
+                        {
+                            Log_Msg+= "Failed to shrink log files (1)"
+                            return ["1", Log_Msg.join("\r\n")]
+                        }
+
+                        def BkpReturn1,BkpOutput1;
+                        (BkpReturn1,BkpOutput1)=RunTLogBkpInstancesAll(HostName:HostName,LoginName:LoginName);
+                        if( (BkpReturn1.equals("0")) && (BkpOutput1!="") )
+                        {
+                            Log_Msg+= "T-Log Bkp triggered for all instances (2)"                            
+                        }
+                        else
+                        {
+                            Log_Msg+= "Failed to trigger T-Log Bkp (2)"
+                            return ["1", Log_Msg.join("\r\n")]
+                        }
+
+                        def JobReturn1,JobOutput1;
+                        (JobReturn1,JobOutput1)=getCurrentJobInstancesAll(HostName:HostName,LoginName:LoginName,WaitTime:"10");
+                        if( (JobReturn1.equals("0")) && (JobOutput1!="") )
+                        {
+                            Log_Msg+= "T-Log Bkp completed (2)"                            
+                        }
+                        else
+                        {
+                            Log_Msg+= "Failed to get T-Log Bkp status (2)"
+                            return ["1", Log_Msg.join("\r\n")]
+                        }
+
+                        def ShrinkReturn,ShrinkOutput;
+                        (ShrinkReturn,ShrinkOutput)=ShrinkLogFilesInstancesAll(HostName:HostName,LoginName:LoginName);
+                        if( (ShrinkReturn.equals("0")) && (ShrinkOutput!="") )
+                        {
+                            Log_Msg+= "Shrinking Log Files (2)"                            
+                        }
+                        else
+                        {
+                            Log_Msg+= "Failed to shrink log files (2)"
+                            return ["1", Log_Msg.join("\r\n")]
+                        }
+
+                        def SpaceReturn1,SpaceOutput1;
+                        (SpaceReturn1,SpaceOutput1)=windows.getFileSystemFreeSpace(DomainName:DomainName,LoginName:LoginName,HostName:HostName,FileFolderPath:FSName);
+                        if( ((SpaceReturn1.equals("0")) && (SpaceOutput1!="")) || ((SpaceReturn1.equals("1")) && (SpaceOutput1.equals("0"))) )
+                        {
+                            def SpaceOut1=SpaceOutput1.toInteger()
+                            if( SpaceOut1<=limit )
+                            {
+                                Log_Msg+= "Current available space in ${FSName} Drive is ${SpaceOutput1}% and that is still less than ${limit}% after performing all steps by Ignio"
+                                return ["1", Log_Msg.join("\r\n")]
+                            }
+                            else
+                            {
+                                Log_Msg+= "Space has been reclaimed in ${FSName} Drive"
+                                Log_Msg+= "Now ${FSName} Drive has ${SpaceOutput1}% space available which is more than threshold i.e. ${limit}%"
+                                //return ["0", Log_Msg.join("\r\n")]
+                                def SleepReturn4,SleepOutput4;
+                                (SleepReturn4,SleepOutput4)=windows.startSleep(DomainName:DomainName,LoginName:LoginName,HostName:HostName,SleepTime:"900");
+                                if(SleepReturn4.equals("0"))
+                                {
+                                    Log_Msg+= "Checking the status of incident in ESM"            
+                                    def ESMReturn2,ESMOutput2;
+                                    (ESMReturn2,ESMOutput2)=windows.executePSScriptWithParams(DomainName:"AM",LoginName:"igniowin",HostName:"IX1IGNPRWCH1.AM.LILLY.COM",ScriptPath:"E:/ignio/ESMAlertStatus.ps1",Parameters:INCNumber); 
+                                    if( (ESMReturn2.equals("0")) && (ESMOutput2.equals("Unable to fetch status of incident")) )
+                                    {
+                                        Log_Msg+= "Unable to fetch the status of incident from ESM. Hence Status is cleared."
+                                        return ["0", Log_Msg.join("\r\n")]
+                                    }
+                                    else if( (ESMReturn2.equals("0")) && (ESMOutput2.equals("Active")) ) 
+                                    {
+                                        Log_Msg+= "Alert is active in ESM. Hence, reassigning to Database team"
+                                        return ["1", Log_Msg.join("\r\n")]
+                                    }
+                                    else if( (ESMReturn2.equals("0")) && (ESMOutput2.equals("Inactive")) ) 
+                                    {
+                                        Log_Msg+= "Alert is closed in ESM.Thus resolving the incident"
+                                        return ["0", Log_Msg.join("\r\n")]
+                                    }
+                                    else
+                                    {
+                                        Log_Msg+= "Failed to check status of Incident from ESM -- Script Failure"
+                                        return ["1", Log_Msg.join("\r\n")]
+                                    }
+                                }
+                                else
+                                {
+                                    Log_Msg+= "Unable to execute sleeping for 15 minutes"
+                                    return ["1", Log_Msg.join("\r\n")]
+                                } 
+                            }
+                        }
+                        else
+                        {
+                            Log_Msg+= "Unable to fetch free space on ${FSName} Drive"
+                            return ["1", Log_Msg.join("\r\n")]
+                        }
+                    }
+                    else if( FSName.equals("G:"))
+                    {
+                        Log_Msg+= "Shrink files that belongs to TempDB"
+
+                        def ShrinkReturn1,ShrinkOutput1;
+                        (ShrinkReturn1,ShrinkOutput1)=ShrinkTempFilesInstancesAll(HostName:HostName,LoginName:LoginName);
+                        if( (ShrinkReturn1.equals("0")) && (ShrinkOutput1!="") )
+                        {
+                            Log_Msg+= "Shrinking files that belongs to TempDB" 
+                        }
+                        else
+                        {
+                            Log_Msg+= "Failed to shrink TempDB files"
+                            return ["1", Log_Msg.join("\r\n")]
+                        }   
+
+                        def SpaceReturn2,SpaceOutput2;
+                        (SpaceReturn2,SpaceOutput2)=windows.getFileSystemFreeSpace(DomainName:DomainName,LoginName:LoginName,HostName:HostName,FileFolderPath:FSName);
+                        if( ((SpaceReturn2.equals("0")) && (SpaceOutput2!="")) || ((SpaceReturn2.equals("1")) && (SpaceOutput2.equals("0"))) )
+                        {
+                            def SpaceOut2=SpaceOutput2.toInteger()
+                            if( SpaceOut2<=limit )
+                            {
+                                Log_Msg+= "Current available space in ${FSName} Drive is ${SpaceOutput2}% and that is still less than ${limit}% after performing all steps by Ignio"
+                                return ["1", Log_Msg.join("\r\n")]
+                            }
+                            else
+                            {
+                                Log_Msg+= "Space has been reclaimed in ${FSName} Drive"
+                                Log_Msg+= "Now ${FSName} Drive has ${SpaceOutput2}% space available which is more than threshold i.e. ${limit}%"
+                                //return ["0", Log_Msg.join("\r\n")]
+                                def SleepReturn3,SleepOutput3;
+                                (SleepReturn3,SleepOutput3)=windows.startSleep(DomainName:DomainName,LoginName:LoginName,HostName:HostName,SleepTime:"900");
+                                if(SleepReturn3.equals("0"))
+                                {
+                                    Log_Msg+= "Checking the status of incident in ESM"            
+                                    def ESMReturn1,ESMOutput1;
+                                    (ESMReturn1,ESMOutput1)=windows.executePSScriptWithParams(DomainName:"AM",LoginName:"igniowin",HostName:"IX1IGNPRWCH1.AM.LILLY.COM",ScriptPath:"E:/ignio/ESMAlertStatus.ps1",Parameters:INCNumber); 
+                                    if( (ESMReturn1.equals("0")) && (ESMOutput1.equals("Unable to fetch status of incident")) )
+                                    {
+                                        Log_Msg+= "Unable to fetch the status of incident from ESM. Hence Status is cleared."
+                                        return ["0", Log_Msg.join("\r\n")]
+                                    }
+                                    else if( (ESMReturn1.equals("0")) && (ESMOutput1.equals("Active")) ) 
+                                    {
+                                        Log_Msg+= "Alert is active in ESM. Hence, reassigning to Database team"
+                                        return ["1", Log_Msg.join("\r\n")]
+                                    }
+                                    else if( (ESMReturn1.equals("0")) && (ESMOutput1.equals("Inactive")) ) 
+                                    {
+                                        Log_Msg+= "Alert is closed in ESM.Thus resolving the incident"
+                                        return ["0", Log_Msg.join("\r\n")]
+                                    }
+                                    else
+                                    {
+                                        Log_Msg+= "Failed to check status of Incident from ESM -- Script Failure"
+                                        return ["1", Log_Msg.join("\r\n")]
+                                    }
+                                }
+                                else
+                                {
+                                    Log_Msg+= "Unable to execute sleeping for 15 minutes"
+                                    return ["1", Log_Msg.join("\r\n")]
+                                }   
+                            }
+                        }
+                        else
+                        {
+                            Log_Msg+= "Unable to fetch free space on ${FSName} Drive"
+                            return ["1", Log_Msg.join("\r\n")]
+                        } 
+                    }
+                    else
+                    {
+                        Log_Msg+= "${FSName} Drive is not in Ignio scope"
+                        return ["1", Log_Msg.join("\r\n")]
+                    }
+                }
+                else
+                {
+                    Log_Msg+= "${FSName} Drive already has more than ${limit}% space available"
+                    //return ["0", Log_Msg.join("\r\n")]
+                    def SleepReturn2,SleepOutput2;
+                    (SleepReturn2,SleepOutput2)=windows.startSleep(DomainName:DomainName,LoginName:LoginName,HostName:HostName,SleepTime:"900");
+                    if(SleepReturn2.equals("0"))
+                    {
+                        Log_Msg+= "Checking the status of incident in ESM"            
+                        def ESMReturn,ESMOutput;
+                        (ESMReturn,ESMOutput)=windows.executePSScriptWithParams(DomainName:"AM",LoginName:"igniowin",HostName:"IX1IGNPRWCH1.AM.LILLY.COM",ScriptPath:"E:/ignio/ESMAlertStatus.ps1",Parameters:INCNumber); 
+                        if( (ESMReturn.equals("0")) && (ESMOutput.equals("Unable to fetch status of incident")) )
+                        {
+                            Log_Msg+= "Unable to fetch the status of incident from ESM. Hence Status is cleared."
+                            return ["0", Log_Msg.join("\r\n")]
+                        }
+                        else if( (ESMReturn.equals("0")) && (ESMOutput.equals("Active")) ) 
+                        {
+                            Log_Msg+= "Alert is active in ESM. Hence, reassigning to Database team"
+                            return ["1", Log_Msg.join("\r\n")]
+                        }
+                        else if( (ESMReturn.equals("0")) && (ESMOutput.equals("Inactive")) ) 
+                        {
+                            Log_Msg+= "Alert is closed in ESM.Thus resolving the incident"
+                            return ["0", Log_Msg.join("\r\n")]
+                        }
+                        else
+                        {
+                            Log_Msg+= "Failed to check status of Incident from ESM -- Script Failure"
+                            return ["1", Log_Msg.join("\r\n")]
+                        }
+                    }
+                    else
+                    {
+                        Log_Msg+= "Unable to execute sleeping for 15 minutes"
+                        return ["1", Log_Msg.join("\r\n")]
+                    } 
+                }
+            }
+            else
+            {
+                Log_Msg+= "Unable to fetch free space on ${FSName} Drive"
+                return ["1", Log_Msg.join("\r\n")]
+            }
+        }
+        else
+        {
+            Log_Msg+= "${FSName} Drive is not exists on the server"
+            return ["1", Log_Msg.join("\r\n")]
+        }
+    }
+    else
+    {
+        Log_Msg+= "${HostName} is not available"
+        return ["1", Log_Msg.join("\r\n")]
+    }
+   }
+   else
+   {
+    Log_Msg+= "${FSName} Drive space can not fix by Ignio"
+    return ["1", Log_Msg.join("\r\n")]
+   }
+}
